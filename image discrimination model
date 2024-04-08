@@ -1,0 +1,144 @@
+import os
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms, models
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, roc_curve, auc,accuracy_score
+import matplotlib.pyplot as plt
+from PIL import Image
+
+# 加载预训练的ResNet-50模型
+model = models.resnet50(pretrained=True)
+model = nn.Sequential(*list(model.children())[:-2])
+
+# 获取 ResNet50 模型的所有子模块
+modules = list(model.children())
+
+# 删除最后一个 Sequential 模块
+modules = modules[:-1]
+
+# 将修改后的子模块重新设置为模型的结构
+model = nn.Sequential(*modules)
+
+# 获取 ResNet50 模型的所有子模块
+modules = list(model.children())
+
+# 删除最后一个 Sequential 模块
+modules = modules[:-1]
+
+# 将修改后的子模块重新设置为模型的结构
+model = nn.Sequential(*modules)
+
+# 冻结原始 ResNet-50 模型的参数
+for param in model.parameters():
+    param.requires_grad = False
+    
+# 定义三个卷积层参数
+conv1_params = {'in_channels': 512, 'out_channels': 256, 'kernel_size': 3, 'stride': 1, 'padding': 1}
+conv2_params = {'in_channels': 256, 'out_channels': 256, 'kernel_size': 3, 'stride': 1, 'padding': 1}
+conv3_params = {'in_channels': 256, 'out_channels': 256, 'kernel_size': 3, 'stride': 1, 'padding': 1}
+conv4_params = {'in_channels': 256, 'out_channels': 256, 'kernel_size': 3, 'stride': 1, 'padding': 1}
+
+# 添加三个卷积层到模型
+model.add_module('conv3x3_1', nn.Conv2d(**conv1_params))
+
+model.add_module('conv3x3_2', nn.Conv2d(**conv2_params))
+
+model.add_module('conv3x3_3', nn.Conv2d(**conv3_params))
+model.add_module('conv3x3_4', nn.Conv2d(**conv4_params))
+
+model.add_module('relu', nn.ReLU(inplace=True))  # 添加ReLU激活函数
+
+
+# 初始化新添加的卷积层参数
+for m in model[-5:].modules():
+    if isinstance(m, nn.Conv2d):
+        init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+        if m.bias is not None:
+            init.constant_(m.bias, 0)
+                        
+# 添加全局平均池化层
+model.add_module('global_avg_pool', nn.AdaptiveAvgPool2d(1))
+
+# 添加sigmoid分类器
+num_classes = 2  # 这里假设有2个类别
+model.add_module('classifier', nn.Sequential(
+    nn.Flatten(start_dim=1, end_dim=-1),
+    nn.Linear(in_features=256, out_features=num_classes),
+    nn.Sigmoid()
+))
+
+# 定义损失函数和优化器
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.0001)
+
+# 训练模型
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
+model.to(device)
+num_epochs = 50
+
+# Lists to store training and testing metrics
+train_loss_history = []
+train_accuracy_history = []
+test_loss_history = []
+test_accuracy_history = []
+
+for epoch in range(num_epochs):
+    model.train()
+    total_train_loss = 0.0
+    correct_train = 0
+    total_train = 0
+    for inputs, labels in train_loader:
+        inputs, labels = inputs.to(device), labels.to(device)
+
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        
+        total_train_loss += loss.item()
+        _, predicted = outputs.max(1)
+        total_train += labels.size(0)
+        correct_train += predicted.eq(labels).sum().item()
+    
+     # 计算并打印训练集准确率和损失
+    train_accuracy = 100 * correct_train / total_train
+    average_train_loss = total_train_loss / len(train_loader)
+    train_loss_history.append(average_train_loss)
+    train_accuracy_history.append(train_accuracy)
+
+    # 在测试集上评估模型
+    model.eval()
+    all_preds, all_labels = [], []
+    total_test_loss = 0.0
+    correct_test = 0
+    total_test = 0
+    
+    with torch.no_grad():
+        for inputs, labels in test_loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+
+            outputs = model(inputs)
+            _, preds = torch.max(outputs, 1)
+            
+            total_test_loss += criterion(outputs, labels).item()
+            total_test += labels.size(0)
+            correct_test += preds.eq(labels).sum().item()
+
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+            
+    # 计算并打印测试集准确率和损失
+    test_accuracy = 100 * correct_test / total_test
+    average_test_loss = total_test_loss / len(test_loader)
+    test_loss_history.append(average_test_loss)
+    test_accuracy_history.append(test_accuracy)
+
+    # 打印训练集和测试集的准确率变化和损失变化
+    print(f"Epoch {epoch + 1}/{num_epochs}")
+    print(f"Train Loss: {average_train_loss:.4f}  Train Accuracy: {train_accuracy:.2f}% | ", end='')
+    print(f"Test Loss: {average_test_loss:.4f}  Test Accuracy: {test_accuracy:.2f}%")
