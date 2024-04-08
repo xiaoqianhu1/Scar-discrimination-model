@@ -1,0 +1,115 @@
+import torch
+import joblib
+import torchvision
+from torchvision import transforms
+import os
+import cv2
+import numpy as np
+from PIL import Image
+import pandas as pd
+from sklearn.model_selection import train_test_split
+import torch.nn as nn
+import torch.optim as optim
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_curve, auc
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LogisticRegression
+
+# 加载训练好的基因判别模型参数
+gene_model = joblib.load('./logistic_regression_model.pkl')
+# 加载训练好的图像判别模型
+image_model = torch.load('./resnet50_modified_model.pth',map_location=torch.device('cpu'))
+image_model = nn.Sequential(*list(image_model.children())[:-1])
+image_model.fc = torch.nn.Identity()
+print(image_model)
+image_model.eval()
+
+# 训练集（scar:13*340,normal:16*729）前4420scar
+for i in range(0,13):
+    raw_data = df.iloc[i]  # 获取第i行的数据
+
+    # 使用模型的权重（系数）来提取特征
+    gene_features = gene_model.coef_[0] * raw_data
+    # 将一维NumPy数组转换为一维张量
+    gene_features = torch.tensor(gene_features)
+
+    for image_file in image_files1:
+        # 构建图像文件的完整路径
+        image_path = os.path.join(folder_path1, image_file)
+        
+        # 使用 PIL 打开图像
+        image = Image.open(image_path)
+        # 进行图像处理
+        image = process_image(image)
+        feature = image_model(image)
+        img_features = torch.flatten(feature)
+
+        # 使用 torch.cat 将它们串联起来
+        combined_feature = torch.cat((gene_features, img_features))
+
+        train_muti_features.append(combined_feature)
+#测试集(scar:9*240,normal:11*534)前2160为scar
+for i in range(10,19):
+    raw_data = df.iloc[i]  # 获取第i行的数据
+
+    # 使用模型的权重（系数）来提取特征
+    gene_features = gene_model.coef_[0] * raw_data
+    # 将一维NumPy数组转换为一维张量
+    gene_features = torch.tensor(gene_features)
+
+    for image_file in image_files3:
+        # 构建图像文件的完整路径
+        image_path = os.path.join(folder_path3, image_file)
+        
+        # 使用 PIL 打开图像
+        image = Image.open(image_path)
+        # 进行图像处理
+        image = process_image(image)
+        feature = image_model(image)
+        img_features = torch.flatten(feature)
+
+        # 使用 torch.cat 将它们串联起来
+        combined_feature = torch.cat((gene_features, img_features))
+
+        test_muti_features.append(combined_feature)
+
+# 定义 SIGMOID 模型
+class SigmoidClassifier(nn.Module):
+    def __init__(self, input_dim):
+        super(SigmoidClassifier, self).__init__()
+        self.fc = nn.Linear(input_dim, 1)
+        self.sigmoid = nn.Sigmoid()
+    
+    def forward(self, x):
+        x = self.fc(x)
+        x = self.sigmoid(x)
+        return x
+
+# 创建 SIGMOID 模型实例
+input_dim = len(train_muti_features[0])  # 根据输入特征的维度设置输入维度
+sigmoid_model = SigmoidClassifier(input_dim)
+
+# 定义损失函数和优化器
+criterion = nn.BCELoss()  # 二元交叉熵损失
+optimizer = optim.Adam(sigmoid_model.parameters(), lr=0.001)
+
+def train_model(model, features, labels, epochs, learning_rate):
+    train_losses = []
+    train_accuracies = []
+
+    for epoch in range(epochs):
+        model.train()
+        optimizer.zero_grad()
+        outputs = model(features)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+
+        # 计算训练集准确率
+        predicted_train = (outputs > 0.5).float()
+        accuracy = accuracy_score(labels, predicted_train)
+        train_accuracies.append(accuracy)
+        train_losses.append(loss.item())
+
+        print(f"Epoch [{epoch+1}/{epochs}], Loss: {loss.item()}, Accuracy: {accuracy}")
+
+    return train_losses, train_accuracies
