@@ -1,0 +1,20 @@
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import roc_auc_score
+import time
+# 创建L1正则化的逻辑回归模型
+model = LogisticRegression(penalty='none')
+
+# 记录训练开始时间
+start_time = time.time()
+
+# 训练模型
+model.fit(X_train, y_train)
+# 记录训练结束时间
+end_time = time.time()
+# 计算并打印训练耗时
+print(f"模型训练耗时：{end_time - start_time}秒")
+
+# 在训练集和测试集上进行预测
+train_predictions = model.predict(X_train)
+test_predictions = model.predict(X_test)
